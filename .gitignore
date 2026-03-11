@@ -1,7 +1,8 @@
-# Environment and secrets
+# Environment and secrets (never commit)
 .env
 .env.local
 .env.*.local
+*.env
 
 # Python
 __pycache__/
@@ -13,13 +14,24 @@ venv/
 .venv/
 *.egg-info/
 .eggs/
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
 
-# Node (if frontend is in same repo)
+# Node / Frontend
 node_modules/
+.next/
+out/
+dist/
+build/
+.npm
+.yarn-integrity
 
 # IDE / OS
 .idea/
 .vscode/
 *.swp
+*.swo
 .DS_Store
 Thumbs.db
