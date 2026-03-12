@@ -11,10 +11,10 @@ interface ChatInputProps {
 }
 
 const SUGGESTIONS = [
-  "How many users exist?",
-  "List inactive Slack users",
-  "What apps does Rahul use?",
   "Onboard john@company.com to Slack",
+  "Show my workflows",
+  "Offboard john@company.com from GitHub",
+  "What offboard requests need approval?",
 ];
 
 export default function ChatInput({ onSend, disabled }: ChatInputProps) {

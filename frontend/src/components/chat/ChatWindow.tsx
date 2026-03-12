@@ -8,7 +8,7 @@ import MessageBubble, {
   type Message,
 } from "./MessageBubble";
 import ChatInput from "./ChatInput";
-import { askAgent } from "@/services/agentApi";
+import { askAgent, clearSession } from "@/services/agentApi";
 
 export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -58,7 +58,10 @@ export default function ChatWindow() {
     }
   }, []);
 
-  const handleClear = () => setMessages([]);
+  const handleClear = () => {
+    setMessages([]);
+    clearSession(); // reset session so next message starts a fresh conversation
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card">

@@ -1,117 +1,123 @@
-# Setup & Run Guide — Docker, Redis, Backend & Frontend
+# Setup & Run Guide — Execute Project from Scratch
 
-Follow these steps in order. Use **your actual paths**: your workspace is `c:\Users\ChaitanyaMalle\CF AI`.
+Use **your actual path**: `C:\Users\ChaitanyaMalle\CF AI`.
 
 ---
 
-## Part 1: Docker & Redis
+## Part 1: Prerequisites
 
-### Step 1: Open Docker Desktop
-- Open **Docker Desktop** from the Start menu.
-- Wait until it says **“Docker Desktop is running”** (green icon in system tray).
-- If the engine is not running, click **Start** or restart Docker Desktop.
+- **Python 3.11+** (for backend)
+- **Node.js 18+** and **npm** (for frontend)
+- **Docker Desktop** (for Redis)
 
-### Step 2: Open Windows PowerShell
-- Press `Win + X` → **Windows PowerShell** (or **Terminal**).
-- Or search “PowerShell” in the Start menu.
+---
 
-### Step 3: Check Docker
-Run:
-```powershell
-docker info
-```
-You should see a long list of Docker system info. If you get an error, Docker is not running — go back to Step 1.
+## Part 2: Redis (required for chat memory)
 
-### Step 4: Pull Redis image
-```powershell
-docker pull redis
-```
-Wait until the download finishes.
+### Step 1: Start Docker Desktop
+- Open **Docker Desktop**. Wait until it shows **“Docker Desktop is running”**.
 
-### Step 5: Run Redis container
+### Step 2: Run Redis
+In PowerShell (or Terminal):
+
 ```powershell
 docker run -d -p 6379:6379 --name cloudfuze-redis redis
 ```
-- `-d` = run in background  
-- `-p 6379:6379` = host port 6379 → container 6379  
-- `--name cloudfuze-redis` = container name  
 
-Your app uses `REDIS_URL=redis://localhost:6379/0` in `.env`, so this matches.
+*(If the image isn’t present, run `docker pull redis` first.)*
 
-### Step 6: Confirm Redis is running
+### Step 3: Confirm Redis is running
 ```powershell
 docker ps
 ```
-You should see a row with **cloudfuze-redis**, image **redis**, ports **6379:6379**.
+You should see **cloudfuze-redis** with port **6379:6379**.
 
 ---
 
-## Part 2: Backend (in IDE or a terminal)
+## Part 3: Backend (Python agent)
 
-### Step 7: Run the backend first
-Open a terminal in your IDE (or use the same PowerShell).
-
-### Step 8: Go to backend folder
+### Step 4: Go to backend folder
 ```powershell
-cd "c:\Users\ChaitanyaMalle\CF AI\cloudfuze-ai-agent"
+cd "C:\Users\ChaitanyaMalle\CF AI\backend"
 ```
-*(If your project is under a different path like `C:\Ravi CF AI Agent\`, use that instead.)*
 
-### Step 9: Start the backend
+### Step 5: Create virtual environment (first time only)
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+*(If you get an execution policy error, run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`)*
+
+### Step 6: Install dependencies (first time only)
+```powershell
+pip install -r requirements.txt
+```
+
+### Step 7: Configure environment
+- Copy `.env.example` to `.env` if you don’t have `.env` yet:
+  ```powershell
+  copy .env.example .env
+  ```
+- Edit `.env` and set:
+  - **OPENAI_API_KEY** — your OpenAI API key
+  - **CLOUDFUZE_TOKEN** — your CloudFuze bearer token  
+  *(Other values have defaults; see `.env.example`.)*
+
+### Step 8: Start the backend
 ```powershell
 python main.py
 ```
-Leave this terminal open. You should see the server start (e.g. listening on a port like 8000).
+Leave this terminal open. Backend will run at **http://localhost:8082** (API docs: http://localhost:8082/docs).
 
 ---
 
-## Part 3: Frontend (new terminal)
+## Part 4: Frontend (Next.js)
 
-### Step 10: Open a new terminal
-In your IDE: **Terminal → New Terminal** (or split terminal). Keep the backend terminal running.
+### Step 9: Open a new terminal
+Keep the backend terminal running. Open a second terminal.
 
-### Step 11: Go to frontend folder
+### Step 10: Go to frontend folder
 ```powershell
-cd "c:\Users\ChaitanyaMalle\CF AI\frontend"
+cd "C:\Users\ChaitanyaMalle\CF AI\frontend"
 ```
-*(If your frontend folder is named `cloudfuze-ai-frontend`, use:  
-`cd "c:\Users\ChaitanyaMalle\CF AI\cloudfuze-ai-frontend"`)*
 
-### Step 12: Install deps (first time only) and run dev server
+### Step 11: Install dependencies (first time only)
 ```powershell
 npm install
+```
+
+### Step 12: Start the frontend
+```powershell
 npm run dev
 ```
-Leave this terminal open. Note the URL (usually **http://localhost:3000**).
+Leave this terminal open. Frontend will run at **http://localhost:3000**.
 
 ---
 
-## Part 4: Test in browser
+## Part 5: Use the app
 
-### Step 13: Open the app
-- Open **Edge** or **Chrome**.
-- Go to **http://localhost:3000**.
-
-### Step 14: You’re good to test
-- Chat memory is stored in Redis (container **cloudfuze-redis** on port 6379).
-- Backend talks to Redis using `REDIS_URL` from `.env`.
+### Step 13: Open in browser
+- Open **http://localhost:3000** in Chrome or Edge.
+- Chat is stored in Redis (cloudfuze-redis on port 6379).
 
 ---
 
 ## Quick reference
 
-| What        | Command / URL                                      |
-|------------|-----------------------------------------------------|
-| Redis      | `docker ps` → cloudfuze-redis, 6379:6379           |
-| Backend    | `cd "...\cloudfuze-ai-agent"` → `python main.py`   |
-| Frontend   | `cd "...\frontend"` → `npm run dev`                 |
-| App        | http://localhost:3000                              |
+| Component | Command / URL |
+|-----------|----------------|
+| Redis     | `docker run -d -p 6379:6379 --name cloudfuze-redis redis` then `docker ps` |
+| Backend   | `cd "...\backend"` → activate venv → `python main.py` |
+| Frontend  | `cd "...\frontend"` → `npm run dev` |
+| App       | http://localhost:3000 |
+| API docs  | http://localhost:8082/docs |
 
-## Optional: stop Redis when done
+## Optional: Stop Redis when done
 ```powershell
 docker stop cloudfuze-redis
 ```
-To start it again later:
+To start again later:
 ```powershell
 docker start cloudfuze-redis
 ```

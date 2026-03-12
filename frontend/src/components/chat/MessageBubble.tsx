@@ -16,6 +16,93 @@ interface MessageBubbleProps {
   message: Message;
 }
 
+/**
+ * Renders agent markdown responses into readable HTML.
+ * Handles: **bold**, bullet lists (- item), numbered lists, and line breaks.
+ * No external package needed — keeps the bundle lean.
+ */
+function MarkdownContent({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Bullet list item
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*]\s+/, ""));
+        i++;
+      }
+      elements.push(
+        <ul key={`ul-${i}`} className="my-1.5 ml-4 list-disc space-y-0.5">
+          {items.map((item, idx) => (
+            <li key={idx}>{renderInline(item)}</li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    // Numbered list item
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, ""));
+        i++;
+      }
+      elements.push(
+        <ol key={`ol-${i}`} className="my-1.5 ml-4 list-decimal space-y-0.5">
+          {items.map((item, idx) => (
+            <li key={idx}>{renderInline(item)}</li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    // Empty line → spacing
+    if (line.trim() === "") {
+      elements.push(<div key={`sp-${i}`} className="h-1.5" />);
+      i++;
+      continue;
+    }
+
+    // Normal paragraph line
+    elements.push(
+      <p key={`p-${i}`} className="leading-relaxed">
+        {renderInline(line)}
+      </p>
+    );
+    i++;
+  }
+
+  return <div className="space-y-0.5 text-sm">{elements}</div>;
+}
+
+/** Renders inline markdown: **bold** and `code` */
+function renderInline(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={i}
+          className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs text-slate-700"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === "user";
 
@@ -51,7 +138,13 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             : "rounded-tl-md border border-slate-200 bg-white text-slate-800 shadow-card"
         )}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          // User messages: plain text, no markdown processing
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          // Assistant messages: render markdown
+          <MarkdownContent text={message.content} />
+        )}
         <p
           className={cn(
             "mt-1.5 text-[10px]",
