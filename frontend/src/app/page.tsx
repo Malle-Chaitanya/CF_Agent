@@ -39,7 +39,7 @@ export default function Home() {
     <div className="flex h-screen overflow-hidden bg-surface-secondary">
       <Sidebar activeId={activeNav} onNavigate={setActiveNav} />
 
-      <div className="ml-[260px] flex flex-1 flex-col overflow-hidden">
+      <div className="ml-[90px] flex flex-1 flex-col overflow-hidden">
         <Header title={meta.title} subtitle={meta.subtitle} />
 
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">
