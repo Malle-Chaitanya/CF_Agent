@@ -91,96 +91,18 @@ class CloudFuzeAPIClient:
         return self._request("POST", "/api/user/onBoard", json_body=body)
 
     def run_onboard_workflow(self, admin_cloud_id, email, vendor, admin_member_id,
-                             existing_admin_cloud_id=""):
-        """POST /api/user/onBoard/users/runFlow
+                             existing_admin_cloud_id="", display_name=""):
+        """POST /api/user/onBoard/users/runFlow — execute onboard for a user.
 
-        CONFIRMED WORKING (terminal test chaitanya.malle@cloudfuze.com → TWILIO):
-          email            = username only  e.g. "chaitanya.malle"
-          displayName      = FULL email     e.g. "chaitanya.malle@cloudfuze.com"
-          existingMemberId = FULL email     (Java findUserByAdminCloudIdAndEmail queries SaaSUser.emailId)
-          existingAdminCloudId = adminCloudId of M365 tenant whose domainName = user's email domain
-
-        MULTI-TENANT LOGIC:
-          You may have multiple M365 tenants (e.g. cloudfuze.com + filefuze.co).
-          We always fetch the vendor list live and match by email domain to get the right tenant.
+        No GET to /api/vendor/list. Java fetches domain from storedVendor itself.
+        - email: username only (Java appends @domain from storedVendor.domainName)
+        - displayName: full email as stored in SaaSUser.emailId (for findUserByAdminCloudIdAndEmailId)
+        - existingAdminCloudId: SOURCE vendor adminCloudId (from create_onboard_workflow response)
         """
-        _SOURCE_PRIORITY = [
-            "MICROSOFT_OFFICE_365", "MICROSOFT_365",
-            "GOOGLE_WORKSPACE", "GSUITE",
-            "OKTA", "AZURE_AD", "ONELOGIN", "JUMPCLOUD",
-        ]
-
         username = email.split("@")[0]
-        email_domain = email.split("@")[1] if "@" in email else ""
-
-        resolved_existing_admin_cloud_id = existing_admin_cloud_id or admin_cloud_id
-        resolved_domain = email_domain
-
-        try:
-            vendors = self.get_connected_vendors()
-            vendor_list = vendors if isinstance(vendors, list) else []
-
-            # Collect all identity-provider vendors in priority order
-            idp_vendors = []
-            for priority in _SOURCE_PRIORITY:
-                for v in vendor_list:
-                    p = (v.get("providerName") or "").upper().replace(" ", "_")
-                    if p == priority and v.get("id") and v.get("domainName"):
-                        idp_vendors.append(v)
-
-            if email_domain:
-                # IMPORTANT: existingAdminCloudId is NOT based on email domain.
-                # It is the M365 tenant that users were IMPORTED FROM in CloudFuze DB.
-                # In this org, all users (including @cloudfuze.com) are stored under
-                # the primary M365 tenant regardless of their email domain.
-                # Strategy: use the first IDP vendor found (highest priority in list).
-                # This matches confirmed working terminal test:
-                #   chaitanya.malle@cloudfuze.com → existingAdminCloudId=69b28f4d4907036fee79b701
-                #   (filefuze.co M365 tenant — the primary import source)
-                if idp_vendors:
-                    primary_idp = idp_vendors[0]
-                    resolved_existing_admin_cloud_id = primary_idp["id"]
-                    if not resolved_domain:
-                        resolved_domain = primary_idp.get("domainName", "")
-                    logger.info(
-                        "run_onboard | using primary IDP=%s | existingAdminCloudId=%s | email_domain=%s",
-                        primary_idp.get("providerName"), resolved_existing_admin_cloud_id, email_domain,
-                    )
-                else:
-                    logger.warning(
-                        "run_onboard | no IDP found | keeping existingAdminCloudId=%s",
-                        resolved_existing_admin_cloud_id,
-                    )
-            else:
-                # No domain in email — try to find IDP by passed existing_admin_cloud_id, else use first
-                matched = None
-                if existing_admin_cloud_id:
-                    matched = next((v for v in vendor_list if v.get("id") == existing_admin_cloud_id), None)
-                if not matched and idp_vendors:
-                    matched = idp_vendors[0]
-                if matched:
-                    resolved_existing_admin_cloud_id = matched["id"]
-                    resolved_domain = matched.get("domainName", "")
-                    logger.info(
-                        "run_onboard | no domain in email | vendor=%s domain=%s existingAdminCloudId=%s",
-                        matched.get("providerName"), resolved_domain, resolved_existing_admin_cloud_id,
-                    )
-
-        except Exception as exc:
-            logger.warning("run_onboard | vendor list fetch failed: %s", exc)
-
-        # Build full email — must exactly match SaaSUser.emailId in DB
-        if "@" in email:
-            full_email = email
-        elif resolved_domain:
-            full_email = f"{username}@{resolved_domain}"
-        else:
-            full_email = username
-            logger.warning("run_onboard | could not resolve domain — full_email=%s", full_email)
-
         body = [{
             "email": username,
-            "displayName": full_email,
+            "displayName": display_name or email,
             "name": None,
             "firstName": None,
             "lastName": None,
@@ -194,15 +116,16 @@ class CloudFuzeAPIClient:
             "adminMemberId": admin_member_id,
             "adminCloudId": admin_cloud_id,
             "existingUser": True,
-            "existingAdminCloudId": resolved_existing_admin_cloud_id,
-            "existingMemberId": full_email,
+            "existingAdminCloudId": existing_admin_cloud_id or admin_cloud_id,
+            "existingMemberId": display_name or email,
             "deleted": False,
             "saaSApplicationRoles": [],
         }]
         logger.info(
-            "workflow | action=run_onboard | email=%s | full_email=%s | vendor=%s | "
+            "workflow | action=run_onboard | email=%s | displayName=%s | vendor=%s | "
             "adminMemberId=%s | existingAdminCloudId=%s",
-            username, full_email, vendor, admin_member_id, resolved_existing_admin_cloud_id,
+            username, display_name or email, vendor, admin_member_id,
+            existing_admin_cloud_id or admin_cloud_id,
         )
         return self._request("POST", "/api/user/onBoard/users/runFlow", json_body=body)
 

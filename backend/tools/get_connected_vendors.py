@@ -31,16 +31,24 @@ def handle_get_connected_vendors(arguments: dict[str, Any]) -> str:
             vendors = result.get("vendors", []) if isinstance(result, dict) else []
 
         simplified = []
+        seen_provider_names: set[str] = set()
         for v in vendors:
             if not isinstance(v, dict):
                 continue
             # Java API has a typo: field is "memebId" not "memberId"
             # Read both keys so we work regardless of whether it gets fixed upstream
             member_id = v.get("memebId") or v.get("memberId") or ""
+            provider_name = (v.get("providerName") or v.get("vendorName") or "").strip()
+            if not provider_name:
+                continue
+            key = provider_name.upper()
+            if key in seen_provider_names:
+                continue
+            seen_provider_names.add(key)
             simplified.append({
                 "adminCloudId": v.get("id") or v.get("adminCloudId", ""),
                 "memberId": member_id,
-                "providerName": v.get("providerName") or v.get("vendorName", ""),
+                "providerName": provider_name,
                 "adminEmail": v.get("adminEmail", ""),
                 "domainName": v.get("domainName", ""),
                 "status": str(v.get("status", "")),

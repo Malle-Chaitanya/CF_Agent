@@ -359,7 +359,8 @@ TOOL_DEFINITIONS: list[dict] = [
             "name": "delete_workflow",
             "description": (
                 "Permanently delete a workflow by its ID. "
-                "Use when the admin wants to remove or delete a workflow."
+                "Use when the admin wants to remove or delete a workflow. "
+                "Pass is_offboard=true when deleting an offboard workflow so Java deletes from the correct collection."
             ),
             "parameters": {
                 "type": "object",
@@ -367,7 +368,15 @@ TOOL_DEFINITIONS: list[dict] = [
                     "workflow_id": {
                         "type": "string",
                         "description": "The ID of the workflow to delete.",
-                    }
+                    },
+                    "is_offboard": {
+                        "type": "boolean",
+                        "description": (
+                            "Set to true when deleting an offboard workflow (OffBoardWorkFlow collection). "
+                            "Default false for onboard workflows."
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["workflow_id"],
             },

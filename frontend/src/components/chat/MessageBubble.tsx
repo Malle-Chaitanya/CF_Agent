@@ -16,11 +16,20 @@ interface MessageBubbleProps {
   message: Message;
 }
 
-/**
- * Renders agent markdown responses into readable HTML.
- * Handles: **bold**, bullet lists (- item), numbered lists, and line breaks.
- * No external package needed — keeps the bundle lean.
- */
+/** Parse a markdown table row into cell strings (split on |, trim, drop empty ends). */
+function parseTableRow(line: string): string[] {
+  const cells = line.split("|").map((s) => s.trim());
+  if (cells.length > 0 && cells[0] === "") cells.shift();
+  if (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
+/** True if the row looks like a markdown table separator (e.g. |---|---|). */
+function isTableSeparatorRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+/** Renders agent markdown responses into readable HTML. */
 function MarkdownContent({ text }: { text: string }) {
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
@@ -28,6 +37,59 @@ function MarkdownContent({ text }: { text: string }) {
 
   while (i < lines.length) {
     const line = lines[i];
+
+    // Markdown table: consecutive lines that look like | cell | cell |
+    if (/\|.+\|/.test(line)) {
+      const tableLines: string[] = [];
+      while (i < lines.length && /\|.+\|/.test(lines[i])) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      const rows = tableLines.map(parseTableRow).filter((cells) => cells.length > 0);
+      if (rows.length > 0) {
+        const isSeparator = (r: string[]) => isTableSeparatorRow(r);
+        const headerRow = rows[0];
+            const afterHeader = rows.slice(1);
+            const separatorIndex = afterHeader.findIndex((r) => isSeparator(r));
+            const bodyRows =
+              separatorIndex >= 0
+                ? afterHeader.slice(separatorIndex + 1)
+                : afterHeader;
+        elements.push(
+          <div key={`table-${i}`} className="my-3 overflow-x-auto">
+            <table className="w-full min-w-[200px] border-collapse text-sm">
+              <thead>
+                <tr>
+                  {headerRow.map((cell, cidx) => (
+                    <th
+                      key={cidx}
+                      className="border border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold text-slate-700"
+                    >
+                      {renderInline(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, ridx) => (
+                  <tr key={ridx}>
+                    {row.map((cell, cidx) => (
+                      <td
+                        key={cidx}
+                        className="border border-slate-200 px-3 py-2 text-slate-800"
+                      >
+                        {renderInline(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      continue;
+    }
 
     // Bullet list item
     if (/^[-*]\s+/.test(line)) {

@@ -1,19 +1,49 @@
 """Tool: run_workflow — execute an onboard or offboard workflow.
 
-CRITICAL field difference between onboard and offboard (from Java source):
+JAVA SOURCE ANALYSIS — users/runFlow (POST /api/user/onBoard/users/runFlow):
+=============================================================================
 
-ONBOARD  (POST /api/user/onBoard/users/runFlow):
-  - admin_member_id  = TARGET vendor SaaSVendor.memberId (UUID like 4fa61aa7-...)
-  - admin_cloud_id   = TARGET vendor MongoDB _id (24-char hex)
-  - existing_admin_cloud_id = SOURCE vendor (M365) adminCloudId — MUST match user's email domain
-  - email passed as FULL email e.g. chaitanya.malle@cloudfuze.com
-    → api_client strips to username, appends @domain for displayName/existingMemberId
+Java does these lookups IN ORDER:
+
+1. findVendorByMemberIdAndPlatformUserId(adminMemberId, userId, vendor)
+   → Finds the TARGET vendor by SaaSVendor.memberId
+   → Gets storedVendor.domainName (Java appends this to email itself)
+
+2. if existingUser=true:
+   findUserByAdminCloudIdAndEmailIdAndDeletedFalse(existingAdminCloudId, displayName)
+   → Queries SaaSUser.emailId field (NOT SaaSUser.email — two different fields)
+   → displayName must exactly match SaaSUser.emailId stored in DB
+   → If found → existingUser object used for firstName/lastName
+
+3. findOneByEmail(email + "@" + storedVendor.domainName, userId, memberId, vendor)
+   → Checks if user already exists in TARGET vendor (skip if already onboarded)
+
+4. if existingUser found (step 2): use it directly → proceed to createAUSer()
+   if existingUser NOT found: findCreatedByEmail(email.split("@")[0], true)
+   → Fallback: queries SaaSUser.email by username-only, created=true
+   → This is the pre-registration path
+
+5. Returns "User Not Exists In DB" ONLY if BOTH step 2 AND step 4 return null.
+
+CONCLUSION:
+- No extra GET to /api/vendor/list needed — Java fetches domain from storedVendor itself.
+- displayName should be the full email AS STORED in SaaSUser.emailId.
+- Fallback path (findCreatedByEmail) uses username-only from onBoardUser.email.
+- We send BOTH: username as email, full email as displayName — covers both paths.
+
+FIELD RULES:
+  email           = username only (Java appends @domain from storedVendor.domainName)
+  displayName     = full email as stored in SaaSUser.emailId (covers existingUser path)
+  adminMemberId   = TARGET vendor SaaSVendor.memberId (UUID)
+  adminCloudId    = TARGET vendor MongoDB _id (24-char hex)
+  existingAdminCloudId = SOURCE vendor adminCloudId (where user's record lives in DB)
 
 OFFBOARD (POST /api/user/offBoard/runFlow):
-  - admin_member_id = adminCloudId (MongoDB _id) — Java calls getSaaSVendorById → findById
+  adminMemberId = adminCloudId (MongoDB _id) — Java calls getSaaSVendorById → findById
 """
 
 from __future__ import annotations
+
 import json
 import logging
 from typing import Any
@@ -33,66 +63,111 @@ def handle_run_workflow(arguments: dict[str, Any]) -> str:
     admin_cloud_id  = str(arguments.get("admin_cloud_id") or "").strip()
     admin_member_id = str(arguments.get("admin_member_id") or "").strip()
     perm_delete     = bool(arguments.get("perm_delete", False))
-    existing_admin_cloud_id = str(arguments.get("existing_admin_cloud_id") or "").strip()
 
-    missing = [f for f, v in [("email", email), ("vendor", vendor),
-                               ("admin_cloud_id", admin_cloud_id),
-                               ("admin_member_id", admin_member_id)] if not v]
+    # existing_admin_cloud_id: adminCloudId of the SOURCE vendor (e.g. Microsoft 365)
+    # where this user's record exists in CloudFuze DB (SaaSUser.emailId).
+    # Java uses: findUserByAdminCloudIdAndEmailIdAndDeletedFalse(existingAdminCloudId, displayName)
+    existing_admin_cloud_id = str(arguments.get("existing_admin_cloud_id") or "").strip()
+    if not existing_admin_cloud_id:
+        existing_admin_cloud_id = admin_cloud_id
+
+    missing = [f for f, v in [
+        ("email", email),
+        ("vendor", vendor),
+        ("admin_cloud_id", admin_cloud_id),
+        ("admin_member_id", admin_member_id),
+    ] if not v]
+
     if missing:
         return json.dumps({
             "error": "missing_required_fields",
             "missing": missing,
-            "message": f"Cannot run workflow — missing: {', '.join(missing)}.",
+            "message": (
+                f"Cannot run workflow — missing: {', '.join(missing)}. "
+                "These come from the create_onboard_workflow response."
+            ),
         })
 
     if settings.DEBUG:
         logger.debug(
             "[DEBUG] run_workflow | type=%s | email=%s | vendor=%s | "
             "adminCloudId=%s | adminMemberId=%s | existingAdminCloudId=%s",
-            workflow_type, email, vendor, admin_cloud_id, admin_member_id, existing_admin_cloud_id,
+            workflow_type, email, vendor,
+            admin_cloud_id, admin_member_id, existing_admin_cloud_id,
         )
 
     try:
         if workflow_type == "offboard":
+            # OFFBOARD: Java getSaaSVendorById(adminMemberId) → findById → needs MongoDB _id
             result = api_client.run_offboard_workflow(
                 admin_cloud_id=admin_cloud_id,
                 email=email,
                 vendor=vendor,
-                admin_member_id=admin_cloud_id,  # offboard needs MongoDB _id
+                admin_member_id=admin_cloud_id,  # offboard needs adminCloudId, not memberId
                 perm_delete=perm_delete,
             )
             action = "offboard"
+
         else:
-            # Pass the full email (e.g. chaitanya.malle@cloudfuze.com) so the api_client
-            # can extract the domain and match the correct M365 tenant.
-            # existing_admin_cloud_id is a hint but api_client will re-verify via vendor list.
+            # ONBOARD: POST /api/user/onBoard/users/runFlow
+            #
+            # Java lookup chain (from source):
+            # 1. findUserByAdminCloudIdAndEmailIdAndDeletedFalse(existingAdminCloudId, displayName)
+            #    → displayName must match SaaSUser.emailId exactly
+            # 2. Fallback: findCreatedByEmail(username, true)
+            #    → matches SaaSUser.email by username-only
+            #
+            # We send:
+            #   email        = username only (Java appends @domain from storedVendor itself)
+            #   displayName  = full email (covers path 1 — SaaSUser.emailId lookup)
+            #
+            # No extra GET to /api/vendor/list needed here — Java handles domain internally.
+
+            username = email.split("@")[0]
+            display_name = email  # full email for SaaSUser.emailId lookup
+
+            logger.info(
+                "run_workflow | onboard | username=%s | displayName=%s | vendor=%s | "
+                "adminMemberId=%s | existingAdminCloudId=%s",
+                username, display_name, vendor, admin_member_id, existing_admin_cloud_id,
+            )
+
             result = api_client.run_onboard_workflow(
                 admin_cloud_id=admin_cloud_id,
                 email=email,
                 vendor=vendor,
                 admin_member_id=admin_member_id,
                 existing_admin_cloud_id=existing_admin_cloud_id,
+                display_name=display_name,
             )
             action = "onboard"
 
-        logger.info("workflow | action=%s | email=%s | vendor=%s | result=%s",
-                    action, email, vendor, result)
+        logger.info(
+            "run_workflow | action=%s | email=%s | vendor=%s | result=%s",
+            action, email, vendor, result,
+        )
 
-        # Check for Java-level error in 200 OK response
+        # Check for Java-level error embedded in 200 OK response
+        # Java returns 200 with created=false + errorMsg when provisioning fails
         if isinstance(result, list) and result:
             error_msg = result[0].get("errorMsg")
             created   = result[0].get("created", False)
+
             if error_msg and not created:
-                logger.warning("run_workflow | vendor error | email=%s | vendor=%s | error=%s",
-                               email, vendor, error_msg)
+                logger.warning(
+                    "run_workflow | vendor-level error | email=%s | vendor=%s | error=%s",
+                    email, vendor, error_msg,
+                )
                 return json.dumps({
                     "status": "vendor_error",
                     "error": error_msg,
                     "email": email,
                     "vendor": vendor,
                     "message": (
-                        f"The workflow was sent but the vendor reported: {error_msg}. "
-                        "Check Java backend logs or try a different vendor."
+                        f"The workflow request reached the server but the vendor connector "
+                        f"reported: '{error_msg}'. "
+                        "This is a server-side issue — check Java backend logs. "
+                        "The user may not be synced into CloudFuze's database yet."
                     ),
                 })
 

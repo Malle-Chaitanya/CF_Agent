@@ -1,9 +1,12 @@
 """Application configuration loaded from environment variables."""
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root (CF AI/) so it works when .env is there instead of backend/
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
 
 
 class Settings:
