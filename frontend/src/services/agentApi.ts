@@ -1,59 +1,104 @@
-export interface AgentResponse {
-  response: string;
-  session_id?: string;
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? 'http://localhost:3002';
+const SESSION_KEY = 'cf_agent_session_id';
+
+export interface Widget {
+  type: 'table' | 'metric_cards' | 'bar_chart' | 'donut_chart' | 'timeline' | 'action_buttons' | 'text_block';
+  [key: string]: any;
 }
 
-const API_URL =
-  process.env.NEXT_PUBLIC_AGENT_API_URL ?? "http://localhost:8082";
+export interface AgentResponse {
+  run_id: string | null;
+  session_id: string | null;
+  text: string;
+  widgets: Widget[];
+  follow_up: string[];
+  tokens_used: number;
+  duration_ms: number;
+  guardrail_triggered: boolean;
+}
 
-// Session ID persisted for the lifetime of the browser tab.
-// Keeps conversation context alive across follow-up messages
-// (e.g. "yes run it" knows which workflow was just created).
-let _sessionId: string = "";
+export interface ActionResponse {
+  success: boolean;
+  data?: any;
+  widgets?: Widget[];
+  error?: string;
+}
 
-export function getSessionId(): string {
-  return _sessionId;
+function getSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return sessionStorage.getItem(SESSION_KEY);
+}
+
+function saveSessionId(id: string): void {
+  if (typeof window !== 'undefined') {
+    sessionStorage.setItem(SESSION_KEY, id);
+  }
 }
 
 export function clearSession(): void {
-  _sessionId = "";
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem(SESSION_KEY);
+  }
 }
 
-export async function askAgent(prompt: string): Promise<AgentResponse> {
-  const res = await fetch(`${API_URL}/agent/query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      prompt,
-      session_id: _sessionId, // send back the session id on every request
-    }),
+export function setSessionId(id: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (id) sessionStorage.setItem(SESSION_KEY, id);
+  else sessionStorage.removeItem(SESSION_KEY);
+}
+
+export async function askAgent(
+  question: string,
+  token: string,
+  context?: { current_page?: string; selected_app_id?: string }
+): Promise<AgentResponse> {
+  const sessionId = getSessionId();
+
+  const res = await fetch(`${AGENT_URL}/api/agent/query`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ question, session_id: sessionId ?? undefined, context }),
+    signal: AbortSignal.timeout(90_000),
   });
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "Unknown error");
-    let message = text;
-    try {
-      const json = JSON.parse(text) as { detail?: string | { msg?: string }[]; error?: string };
-      if (Array.isArray(json.detail)) {
-        message = json.detail.map((d) => d?.msg ?? String(d)).join("; ") || text;
-      } else if (typeof json.detail === "string") {
-        message = json.detail;
-      } else {
-        message = json.detail ?? json.error ?? text;
-      }
-    } catch {
-      // keep text as-is if not JSON
-    }
-    throw new Error(`Agent request failed (${res.status}): ${message}`);
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error ?? `HTTP ${res.status}`);
   }
 
   const data: AgentResponse = await res.json();
-
-  // Store the session id returned by the backend so the next message
-  // continues the same conversation (Redis memory key).
-  if (data.session_id) {
-    _sessionId = data.session_id;
-  }
-
+  if (data.session_id) saveSessionId(data.session_id);
   return data;
+}
+
+export async function executeAction(
+  runId: string,
+  action: string,
+  payload: Record<string, any>,
+  token: string
+): Promise<ActionResponse> {
+  const res = await fetch(`${AGENT_URL}/api/agent/action`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ run_id: runId, action, payload }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  return data;
+}
+
+export async function getAgentHistory(token: string, limit = 20) {
+  const res = await fetch(`${AGENT_URL}/api/agent/history?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.runs ?? [];
 }
