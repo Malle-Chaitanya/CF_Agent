@@ -1,7 +1,7 @@
 # Environment and secrets (never commit)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 *.env
 
 # Python
@@ -27,6 +27,9 @@ dist/
 build/
 .npm
 .yarn-integrity
+
+# Test files with potential secrets
+test-langfuse*
 
 # IDE / OS
 .idea/
